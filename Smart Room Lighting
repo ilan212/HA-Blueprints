@@ -1,0 +1,140 @@
+blueprint:
+  name: Smart Room Lighting
+  domain: automation
+  input:
+    area:
+      name: Area
+      description: The area where the lights are located. Leave empty if not specified.
+      selector:
+        entity:
+          domain: light
+    door_sensor:
+      name: Door Sensor
+      description: The door sensor to trigger lights when the door opens.
+      selector:
+        entity:
+          domain: binary_sensor
+    motion_sensor_entrance:
+      name: Motion Sensor - Entrance
+      description: Motion sensor at the entrance to trigger before entering the room.
+      selector:
+        entity:
+          domain: binary_sensor
+    motion_sensor_room:
+      name: Motion Sensor - Room
+      description: Motion sensor in the room to detect presence.
+      selector:
+        entity:
+          domain: binary_sensor
+    main_light_switch:
+      name: Main Light Switch
+      description: Switch to toggle the main light.
+      selector:
+        entity:
+          domain: switch
+    secondary_light_switch:
+      name: Secondary Light Switch
+      description: Battery-operated switch to toggle the secondary light.
+      selector:
+        entity:
+          domain: switch
+    secondary_light_entity_id:
+      name: Secondary Light Entity ID
+      description: The entity ID of the secondary light.
+      selector:
+        entity:
+          domain: light
+    turn_off_delay:
+      name: Turn Off Delay
+      description: Time in minutes to wait before turning off the light after no motion is detected.
+      default: 5
+      selector:
+        number:
+          min: 1
+          max: 60
+          unit_of_measurement: minutes
+    notify_target:
+      name: Notify Target
+      description: The target for notifications (e.g., mobile app, email).
+      selector:
+        entity:
+          domain: notify
+
+mode: restart
+max_exceeded: silent
+
+trigger:
+  platform: state
+  entity_id: binary_sensor.door_sensor
+
+action:
+  - choose:
+      - conditions:
+          - condition: state
+            entity_id: binary_sensor.door_sensor
+            state: "on"
+        sequence:
+          - service: light.turn_on
+            target:
+              entity_id: light.main_light_entity_id
+  - choose:
+      - conditions:
+          - condition: state
+            entity_id: binary_sensor.motion_sensor_entrance
+            state: "on"
+        sequence:
+          - service: light.turn_on
+            target:
+              entity_id: light.main_light_entity_id
+  - choose:
+      - conditions:
+          - condition: state
+            entity_id: binary_sensor.motion_sensor_room
+            state: "off"
+          - condition: state
+            entity_id: binary_sensor.motion_sensor_entrance
+            state: "off"
+        sequence:
+          - service: light.turn_off
+            target:
+              entity_id: light.main_light_entity_id
+          - delay: "{{ states('input_number.turn_off_delay') | int * 60 }}"
+          - condition: state
+            entity_id: binary_sensor.motion_sensor_room
+            state: "off"
+          - condition: state
+            entity_id: binary_sensor.motion_sensor_entrance
+            state: "off"
+          - service: light.turn_off
+            target:
+              entity_id: light.main_light_entity_id
+  - choose:
+      - conditions:
+          - condition: state
+            entity_id: switch.secondary_light_switch
+            state: "on"
+        sequence:
+          - service: light.turn_on
+            target:
+              entity_id: input_secondary_light_entity_id
+      - conditions:
+          - condition: state
+            entity_id: switch.secondary_light_switch
+            state: "off"
+        sequence:
+          - service: notify.notify
+            data:
+              message: "Automation failure in {{ states('input_text.area') }}: Secondary light switch is off when it should be on."
+            target:
+              entity_id: input_notify_target
+  - choose:
+      - conditions:
+          - condition: state
+            entity_id: light.main_light_entity_id
+            state: "off"
+        sequence:
+          - service: notify.notify
+            data:
+              message: "Automation failure in {{ states('input_text.area') }}: Main light is off when it should be on."
+            target:
+              entity_id: input_notify_target
